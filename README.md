@@ -90,7 +90,11 @@ it will be something like `https://YOURPROJECT.appspot.com`.
 
 ## rclone configuration ##
 
-You now need to configure rclone to use the new oauth proxy.
+First make sure your oauth credentials allow the redirect URL of
+`http://127.0.0.1:53682/` as this is what rclone uses.  If you don't
+set this then the authorization process will fail mysteriously.
+
+Now you need to configure rclone to use the new oauth proxy.
 
 You'll need to configure the config by hand and you'll rclone 1.37 or
 a beta to use this.
