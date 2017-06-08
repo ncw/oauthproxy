@@ -9,12 +9,16 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"log"
+	golog "log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"google.golang.org/appengine"
+	"google.golang.org/appengine/log"
+	"google.golang.org/appengine/urlfetch"
 )
 
 const (
@@ -28,13 +32,12 @@ var (
 
 // configData describes the structure of the config file
 type configData struct {
-	AuthServer           string // outgoing auth server
-	TokenServer          string // outoing token server
-	ClientID             string // client ID to use with the auth/token server
-	ClientSecret         string // client secret to use with the auth/token server
-	IncomingClientID     string // client ID users must present to get access
-	IncomingClientSecret string // client Secret users must present to get access
-	BindAddress          string // address to bind to ":53681" by default
+	AuthURL              string // outgoing auth server
+	TokenURL             string // outgoing token server
+	ClientID             string // outgoing client ID to use with the auth/token server
+	ClientSecret         string // outgoing client secret to use with the auth/token server
+	IncomingClientID     string // incoming client ID users must present to get access
+	IncomingClientSecret string // incoming client Secret users must present to get access
 	Name                 string // name of service for title page
 }
 
@@ -47,7 +50,7 @@ var htmlTemplate = template.Must(template.New("index").Parse(`<!doctype html>
 <body>
  <h1>{{ .Title }}</h1>
  <p>This is an oauth proxy.</p>
- <p>Current server time is {{ .Time }}</p>
+ <p>Current server time is {{ .Time }}.</p>
 </body>
 </html>
 `))
@@ -59,6 +62,7 @@ type htmlParams struct {
 
 // Serve an index page
 func index(w http.ResponseWriter, req *http.Request) {
+	c := appengine.NewContext(req)
 	if req.URL.Path != "/" {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -69,7 +73,7 @@ func index(w http.ResponseWriter, req *http.Request) {
 		Time:  time.Now(),
 	})
 	if err != nil {
-		log.Printf("Template execution error: %v", err)
+		log.Errorf(c, "Template execution error: %v", err)
 		http.Error(w, "template failed", http.StatusInternalServerError)
 	}
 }
@@ -110,13 +114,15 @@ func updateAuthHeader(authHeader string) (newAuthHeader string, err error) {
 //  an Authorized: header
 //  the URL destination (different for /auth and /token)
 func proxy(w http.ResponseWriter, req *http.Request) {
+	c := appengine.NewContext(req)
+
 	// Select destination based on URL
 	var serverURL string
 	switch req.URL.Path {
 	case "/auth":
-		serverURL = config.AuthServer
+		serverURL = config.AuthURL
 	case "/token":
-		serverURL = config.TokenServer
+		serverURL = config.TokenURL
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -125,7 +131,7 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 	// Read up to 16K of the body
 	body, err := ioutil.ReadAll(&io.LimitedReader{R: req.Body, N: 16384})
 	if err != nil {
-		log.Printf("Failed to read body: %v", err)
+		log.Errorf(c, "Failed to read body: %v", err)
 		http.Error(w, "failed to read body", http.StatusInternalServerError)
 		return
 	}
@@ -135,7 +141,7 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 	if authHeader != "" {
 		authHeader, err = updateAuthHeader(authHeader)
 		if err != nil {
-			log.Printf("Authorization failed: %v", err)
+			log.Errorf(c, "Authorization failed: %v", err)
 			http.Error(w, "Authorization failed", http.StatusForbidden)
 			return
 		}
@@ -154,7 +160,7 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 	query := req.URL.Query()
 	if incomingClientID := query.Get("client_id"); incomingClientID != "" {
 		if incomingClientID != config.IncomingClientID {
-			log.Printf("Authorization failed: Bad Incoming Client ID")
+			log.Errorf(c, "Authorization failed: Bad Incoming Client ID")
 			http.Error(w, "Authorization failed", http.StatusForbidden)
 			return
 		}
@@ -163,7 +169,11 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 	outURL.RawQuery = query.Encode()
 
 	// outgoing request
-	outReq, err := http.NewRequest(req.Method, outURL.String(), bytes.NewReader(body))
+	var r io.Reader
+	if len(body) != 0 {
+		r = bytes.NewReader(body)
+	}
+	outReq, err := http.NewRequest(req.Method, outURL.String(), r)
 	if err != nil {
 		http.Error(w, "failed to make NewRequest", http.StatusInternalServerError)
 		return
@@ -171,11 +181,13 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 
 	// use (modified) headers from incoming request
 	outReq.Header = req.Header
+	delete(outReq.Header, "Content-Length")
 
 	// Do the HTTP round trip
-	resp, err := http.DefaultClient.Do(outReq)
+	client := urlfetch.Client(c)
+	resp, err := client.Do(outReq)
 	if err != nil {
-		log.Printf("fetch failed: %v", err)
+		log.Errorf(c, "fetch failed: %v", err)
 		http.Error(w, "fetch failed", http.StatusInternalServerError)
 		return
 	}
@@ -194,7 +206,7 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 	// copy the returned body to the output
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
-		log.Printf("Failed to write body: %v", err)
+		log.Errorf(c, "Failed to write body: %v", err)
 		http.Error(w, "failed to write body", http.StatusInternalServerError)
 		return
 	}
@@ -204,44 +216,41 @@ func proxy(w http.ResponseWriter, req *http.Request) {
 func loadConfigFile() {
 	r, err := os.Open(*configFile)
 	if err != nil {
-		log.Fatalf("Failed to open config file %q: %v", *configFile, err)
+		golog.Fatalf("Failed to open config file %q: %v", *configFile, err)
 	}
 	defer r.Close()
 	err = json.NewDecoder(r).Decode(&config)
 	if err != nil {
-		log.Fatalf("Failed to decode config file %q: %v", *configFile, err)
+		golog.Fatalf("Failed to decode config file %q: %v", *configFile, err)
 	}
 }
 
 // checkConfig makes sure that requred config is present
 func checkConfig() (ok bool) {
 	ok = true
-	if config.AuthServer == "" {
-		log.Printf("Config key AuthServer is required")
+	if config.AuthURL == "" {
+		golog.Printf("Config key AuthURL is required")
 		ok = false
 	}
-	if config.TokenServer == "" {
-		log.Printf("Config key TokenServer is required")
+	if config.TokenURL == "" {
+		golog.Printf("Config key TokenURL is required")
 		ok = false
 	}
 	if config.ClientID == "" {
-		log.Printf("Config key ClientID is required")
+		golog.Printf("Config key ClientID is required")
 		ok = false
 	}
 	if config.ClientSecret == "" {
-		log.Printf("Config key ClientSecret is required")
+		golog.Printf("Config key ClientSecret is required")
 		ok = false
 	}
 	if config.IncomingClientID == "" {
-		log.Printf("Config key IncomingClientID is required")
+		golog.Printf("Config key IncomingClientID is required")
 		ok = false
 	}
 	if config.IncomingClientSecret == "" {
-		log.Printf("Config key IncomingClientSecret is required")
+		golog.Printf("Config key IncomingClientSecret is required")
 		ok = false
-	}
-	if config.BindAddress == "" {
-		config.BindAddress = defaultBindAddress
 	}
 	if config.Name == "" {
 		config.Name = "oauth proxy"
@@ -253,10 +262,10 @@ func main() {
 	flag.Parse()
 	loadConfigFile()
 	if !checkConfig() {
-		log.Fatalf("Missing data in config file %q", *configFile)
+		golog.Fatalf("Missing data in config file %q", *configFile)
 	}
 	http.HandleFunc("/auth", proxy)
 	http.HandleFunc("/token", proxy)
 	http.HandleFunc("/", index)
-	log.Fatal(http.ListenAndServe(config.BindAddress, nil))
+	appengine.Main()
 }
