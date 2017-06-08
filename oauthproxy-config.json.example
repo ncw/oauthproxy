@@ -1,0 +1,9 @@
+{
+    "AuthURL" : "https://www.amazon.com/ap/oa",
+    "TokenURL" : "https://api.amazon.com/auth/o2/token",
+    "ClientID" : "Your Client ID goes here",
+    "ClientSecret" : "Your Client secret goes here",
+    "IncomingClientID" : "Client ID (username) your users should use",
+    "IncomingClientSecret" : "Client Secret (password) your users should use",
+    "Name" : "oauth2 proxy"
+}
