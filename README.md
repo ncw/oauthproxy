@@ -94,67 +94,64 @@ First make sure your oauth credentials allow the redirect URL of
 `http://127.0.0.1:53682/` as this is what rclone uses.  If you don't
 set this then the authorization process will fail mysteriously.
 
-Now you need to configure rclone to use the new oauth proxy.
+Now you need to configure rclone to use the new oauth proxy. You'll
+need an up to date rclone 1.37 or an up to date beta of 1.36 to use
+the oauth proxy.
 
-You'll need to configure the config by hand and you'll rclone 1.37 or
-a beta to use this.
+Create a new remote with `rclone config`. When filling out the details
+in the configurator note that:
 
-Find the config like this and then edit it.
-
-```
-$ rclone -h | grep Config
-      --config string                     Config file. (default "/home/USER/.rclone.conf")
-```
-
-The rclone config should look like this.  Note that `client_id` takes
-the value of `IncomingClientID` and `client_secret` takes the value of
-`IncomingClientSecret`.  Note that the URL for `auth_url` is the same
-as your appspot URL but with `/auth` on the end.  Likewise the
-`token_url` with `/token` on the end.
+  * `client_id` takes the value of `IncomingClientID`
+  * `client_secret` takes the value of `IncomingClientSecret`
+  * `auth_url` is the same as your appspot URL but with `/auth` on the end.
+  * `token_url` is the same as your appspot URL but with `/token` on the end.
 
 ```
-[acd]
-type = amazon cloud drive
-client_id = Client ID (username) your users should use
-client_secret = Client ID (username) your users should use
-auth_url = https://YOURPROJECT.appspot.com/auth
-token_url = https://YOURPROJECT.appspot.com/token
-```
-
-Run through the config process to refresh the token
-
-```
-$ rclone config
-e) Edit existing remote
+No remotes found - make a new one
 n) New remote
-d) Delete remote
-r) Rename remote
-c) Copy remote
 s) Set configuration password
 q) Quit config
-e/n/d/r/c/s/q> e
-Choose a number from below, or type in an existing value
- 1 > acd
-remote> acd
---------------------
-[acd]
-type = amazon cloud drive
-client_id = IncomingClientID
-client_secret = IncomingClientSecret
-auth_url = https://YOURPROJECT.appspot.com/auth
-token_url = https://YOURPROJECT.appspot.com/token
---------------------
-Edit remote
-Value "client_id" = "IncomingClientID"
-Edit? (y/n)>
-y) Yes
-n) No
-y/n> n
-Value "client_secret" = "IncomingClientSecret"
-Edit? (y/n)>
-y) Yes
-n) No
-y/n> n
+n/s/q> n
+name> acd
+Type of storage to configure.
+Choose a number from below, or type in your own value
+ 1 / Amazon Drive
+   \ "amazon cloud drive"
+ 2 / Amazon S3 (also Dreamhost, Ceph, Minio)
+   \ "s3"
+ 3 / Backblaze B2
+   \ "b2"
+ 4 / Dropbox
+   \ "dropbox"
+ 5 / Encrypt/Decrypt a remote
+   \ "crypt"
+ 6 / FTP Connection
+   \ "ftp"
+ 7 / Google Cloud Storage (this is not Google Drive)
+   \ "google cloud storage"
+ 8 / Google Drive
+   \ "drive"
+ 9 / Hubic
+   \ "hubic"
+10 / Local Disk
+   \ "local"
+11 / Microsoft OneDrive
+   \ "onedrive"
+12 / Openstack Swift (Rackspace Cloud Files, Memset Memstore, OVH)
+   \ "swift"
+13 / SSH/SFTP Connection
+   \ "sftp"
+14 / Yandex Disk
+   \ "yandex"
+Storage> 1
+Amazon Application Client Id - required.
+client_id> IncomingClientID
+Amazon Application Client Secret - required.
+client_secret> IncomingClientSecret
+Auth server URL - leave blank to use Amazon's.
+auth_url> https://YOURPROJECT.appspot.com/auth
+Token server url - leave blank to use Amazon's.
+token_url> https://YOURPROJECT.appspot.com/token
 Remote config
 Make sure your Redirect URL is set to "http://127.0.0.1:53682/" in your custom config.
 Use auto config?
